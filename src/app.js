@@ -12,10 +12,8 @@ class ConferenceVoiceAssistant {
         this.app = express();
         this.port = process.env.PORT || 3000;
         
-        // Initialize components - use PostgreSQL if available
-        this.databaseManager = process.env.DATABASE_URL ? 
-            new PostgreSQLDatabaseManager() : 
-            new DatabaseManager();
+        // Initialize components - try PostgreSQL first, fallback to SQLite
+        this.databaseManager = null;
         
         this.leadDevScraper = new LeadDevScraper(this.databaseManager);
         this.voiceHandler = new VoiceHandler(null, this.databaseManager);
@@ -79,8 +77,31 @@ class ConferenceVoiceAssistant {
 
     async initialize() {
         try {
-            await this.databaseManager.initialize();
-            console.log('Database initialized successfully');
+            // Try PostgreSQL first if DATABASE_URL is available
+            if (process.env.DATABASE_URL) {
+                try {
+                    console.log('Attempting PostgreSQL connection...');
+                    this.databaseManager = new PostgreSQLDatabaseManager();
+                    await this.databaseManager.initialize();
+                    console.log('✅ PostgreSQL database initialized successfully');
+                } catch (pgError) {
+                    console.log('❌ PostgreSQL connection failed, falling back to SQLite');
+                    console.log('PostgreSQL error:', pgError.message);
+                    this.databaseManager = new DatabaseManager();
+                    await this.databaseManager.initialize();
+                    console.log('✅ SQLite database initialized successfully');
+                }
+            } else {
+                // Use SQLite directly
+                this.databaseManager = new DatabaseManager();
+                await this.databaseManager.initialize();
+                console.log('✅ SQLite database initialized successfully');
+            }
+            
+            // Re-initialize components that depend on database manager
+            this.leadDevScraper = new LeadDevScraper(this.databaseManager);
+            this.voiceHandler = new VoiceHandler(null, this.databaseManager);
+            this.adminRoutes = new AdminRoutes(this.databaseManager, this.leadDevScraper);
             
             this.app.listen(this.port, () => {
                 console.log(`Conference Voice Assistant running on port ${this.port}`);
