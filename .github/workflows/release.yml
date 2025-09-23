@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run tests
+      run: npm run test-scraper
+      
+    - name: Create release package
+      run: |
+        mkdir -p release
+        cp -r src release/
+        cp -r scripts release/
+        cp -r config release/
+        cp package*.json release/
+        cp README.md WINDOWS_DEPLOYMENT.md .env.example release/
+        cd release && tar -czf ../conference-voice-assistant-${{ github.ref_name }}.tar.gz .
+        
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Extract version from tag
+        VERSION=${{ github.ref_name }}
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        
+        # Create a simple changelog
+        cat > CHANGELOG.md << 'EOF'
+        ## Changes in ${{ github.ref_name }}
+        
+        ### 🎤 Conference Voice Assistant
+        
+        #### Features
+        - Voice assistant with Infobip Voice API integration
+        - OpenAI Realtime API for natural language processing
+        - Real-time conference data from LeadDev website
+        - Advanced conversation context management
+        - 8 intelligent query functions
+        - Windows deployment support
+        
+        #### Installation
+        1. Download and extract the release package
+        2. Run `npm install`
+        3. Configure your API keys in `.env`
+        4. Start with `npm start`
+        
+        #### Requirements
+        - Node.js 16+
+        - Infobip Voice API account
+        - OpenAI API key
+        
+        For full documentation, see [README.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md)
+        EOF
+        
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: 🎤 Conference Voice Assistant ${{ github.ref_name }}
+        body_path: CHANGELOG.md
+        draft: false
+        prerelease: false
+        
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./conference-voice-assistant-${{ github.ref_name }}.tar.gz
+        asset_name: conference-voice-assistant-${{ github.ref_name }}.tar.gz
+        asset_content_type: application/gzip
+
+  docker-build:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ github.repository }}
+        tags: |
+          type=ref,event=tag
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          
+    - name: Build Docker image
+      run: |
+        cat > Dockerfile << 'EOF'
+        FROM node:18-alpine
+        
+        WORKDIR /app
+        
+        COPY package*.json ./
+        RUN npm ci --only=production
+        
+        COPY . .
+        
+        EXPOSE 3000
+        
+        CMD ["npm", "start"]
+        EOF
+        
+        docker build -t conference-voice-assistant:${{ github.ref_name }} .
+        
+    - name: Save Docker image
+      run: |
+        docker save conference-voice-assistant:${{ github.ref_name }} | gzip > conference-voice-assistant-docker-${{ github.ref_name }}.tar.gz
