@@ -107,8 +107,8 @@ npm start
 ## 🎉 Ready for Production!
 
 Your voice assistant can handle:
-- **123+ real conference sessions** from LeadDev New York
+- **123+ real conference sessions** from LeadDev New York (Oct 15-16, 2025)
 - **Natural language queries** via phone calls
 - **Context-aware conversations** with follow-up questions
 - **Multiple concurrent callers**
-- **Real-time conference information**
+- **Real-time conference information** with auto-refresh
