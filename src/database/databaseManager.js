@@ -29,8 +29,123 @@ class DatabaseManager {
     }
 
     async createTables() {
-        const queries = [
-            // Speakers table - enhanced for LeadDev data
+        const queries = this.isPostgres ? this.getPostgreSQLQueries() : this.getSQLiteQueries();
+
+        for (const query of queries) {
+            await this.runQuery(query);
+        }
+
+        // Check if we need to populate with sample data
+        const sessionCount = await this.getQuery('SELECT COUNT(*) as count FROM sessions');
+        if (sessionCount.count === 0) {
+            await this.populateSampleData();
+        }
+    }
+
+    getPostgreSQLQueries() {
+        return [
+            // Speakers table - PostgreSQL version
+            `CREATE TABLE IF NOT EXISTS speakers (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                title TEXT,
+                company TEXT,
+                bio TEXT,
+                profile_url TEXT,
+                github_url TEXT,
+                linkedin_url TEXT,
+                twitter_url TEXT,
+                image_url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            
+            // Session types (TALK, DEMO STAGE, SOLUTION SWAP, etc.)
+            `CREATE TABLE IF NOT EXISTS session_types (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            
+            // Topics/Categories 
+            `CREATE TABLE IF NOT EXISTS topics (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            
+            // Suitability levels (EXPERIENCED MANAGER, NEW MANAGER, TECH LEAD)
+            `CREATE TABLE IF NOT EXISTS suitability_levels (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            
+            // Companies/Sponsors
+            `CREATE TABLE IF NOT EXISTS companies (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                booth_location TEXT,
+                website TEXT,
+                logo_url TEXT,
+                is_sponsor BOOLEAN DEFAULT false,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            
+            // Venues/Rooms
+            `CREATE TABLE IF NOT EXISTS venues (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                capacity INTEGER,
+                location_description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            
+            // Sessions table - enhanced for LeadDev structure
+            `CREATE TABLE IF NOT EXISTS sessions (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                start_time TIMESTAMP NOT NULL,
+                end_time TIMESTAMP NOT NULL,
+                venue_id INTEGER REFERENCES venues(id),
+                speaker_id INTEGER REFERENCES speakers(id),
+                session_type_id INTEGER REFERENCES session_types(id),
+                topic_id INTEGER REFERENCES topics(id),
+                sponsor_company_id INTEGER REFERENCES companies(id),
+                is_sponsored BOOLEAN DEFAULT false,
+                max_attendees INTEGER,
+                registration_required BOOLEAN DEFAULT false,
+                session_url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            
+            // Junction table for session suitability (many-to-many)
+            `CREATE TABLE IF NOT EXISTS session_suitability (
+                session_id INTEGER,
+                suitability_level_id INTEGER,
+                PRIMARY KEY (session_id, suitability_level_id),
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (suitability_level_id) REFERENCES suitability_levels(id)
+            )`,
+            
+            // Junction table for session topics (many-to-many) - sessions can have multiple topics
+            `CREATE TABLE IF NOT EXISTS session_topics (
+                session_id INTEGER,
+                topic_id INTEGER,
+                PRIMARY KEY (session_id, topic_id),
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (topic_id) REFERENCES topics(id)
+            )`
+        ];
+    }
+
+    getSQLiteQueries() {
+        return [
+            // SQLite versions with AUTOINCREMENT
             `CREATE TABLE IF NOT EXISTS speakers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -44,32 +159,24 @@ class DatabaseManager {
                 image_url TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
-            
-            // Session types (TALK, DEMO STAGE, SOLUTION SWAP, etc.)
             `CREATE TABLE IF NOT EXISTS session_types (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
                 description TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
-            
-            // Topics/Categories 
             `CREATE TABLE IF NOT EXISTS topics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
                 description TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
-            
-            // Suitability levels (EXPERIENCED MANAGER, NEW MANAGER, TECH LEAD)
             `CREATE TABLE IF NOT EXISTS suitability_levels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
                 description TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
-            
-            // Companies/Sponsors
             `CREATE TABLE IF NOT EXISTS companies (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
@@ -80,8 +187,6 @@ class DatabaseManager {
                 is_sponsor BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
-            
-            // Venues/Rooms
             `CREATE TABLE IF NOT EXISTS venues (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
@@ -89,8 +194,6 @@ class DatabaseManager {
                 location_description TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
-            
-            // Sessions table - enhanced for LeadDev structure
             `CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -113,8 +216,6 @@ class DatabaseManager {
                 FOREIGN KEY (topic_id) REFERENCES topics(id),
                 FOREIGN KEY (sponsor_company_id) REFERENCES companies(id)
             )`,
-            
-            // Junction table for session suitability (many-to-many)
             `CREATE TABLE IF NOT EXISTS session_suitability (
                 session_id INTEGER,
                 suitability_level_id INTEGER,
@@ -122,8 +223,6 @@ class DatabaseManager {
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
                 FOREIGN KEY (suitability_level_id) REFERENCES suitability_levels(id)
             )`,
-            
-            // Junction table for session topics (many-to-many) - sessions can have multiple topics
             `CREATE TABLE IF NOT EXISTS session_topics (
                 session_id INTEGER,
                 topic_id INTEGER,
@@ -132,16 +231,6 @@ class DatabaseManager {
                 FOREIGN KEY (topic_id) REFERENCES topics(id)
             )`
         ];
-
-        for (const query of queries) {
-            await this.runQuery(query);
-        }
-
-        // Check if we need to populate with sample data
-        const sessionCount = await this.getQuery('SELECT COUNT(*) as count FROM sessions');
-        if (sessionCount.count === 0) {
-            await this.populateSampleData();
-        }
     }
 
     async populateSampleData() {
@@ -325,7 +414,20 @@ class DatabaseManager {
     }
 
     // Utility methods for database operations
-    runQuery(sql, params = []) {
+    async runQuery(sql, params = []) {
+        if (this.isPostgres) {
+            try {
+                const result = await this.pgPool.query(sql, params);
+                return { 
+                    id: result.rows[0]?.id || result.insertId,
+                    changes: result.rowCount 
+                };
+            } catch (err) {
+                throw err;
+            }
+        }
+        
+        // SQLite
         return new Promise((resolve, reject) => {
             this.db.run(sql, params, function(err) {
                 if (err) reject(err);
@@ -334,7 +436,17 @@ class DatabaseManager {
         });
     }
 
-    getQuery(sql, params = []) {
+    async getQuery(sql, params = []) {
+        if (this.isPostgres) {
+            try {
+                const result = await this.pgPool.query(sql, params);
+                return result.rows[0] || null;
+            } catch (err) {
+                throw err;
+            }
+        }
+        
+        // SQLite
         return new Promise((resolve, reject) => {
             this.db.get(sql, params, (err, row) => {
                 if (err) reject(err);
@@ -343,7 +455,17 @@ class DatabaseManager {
         });
     }
 
-    allQuery(sql, params = []) {
+    async allQuery(sql, params = []) {
+        if (this.isPostgres) {
+            try {
+                const result = await this.pgPool.query(sql, params);
+                return result.rows;
+            } catch (err) {
+                throw err;
+            }
+        }
+        
+        // SQLite
         return new Promise((resolve, reject) => {
             this.db.all(sql, params, (err, rows) => {
                 if (err) reject(err);
@@ -354,6 +476,7 @@ class DatabaseManager {
 
     // Enhanced query methods for LeadDev data
     async getAllSessions() {
+        const groupConcat = this.isPostgres ? 'STRING_AGG(DISTINCT sl.name, \',\')' : 'GROUP_CONCAT(DISTINCT sl.name)';
         const sql = `
             SELECT s.*, 
                    sp.name as speaker_name, sp.title as speaker_title, sp.company as speaker_company,
@@ -361,7 +484,7 @@ class DatabaseManager {
                    t.name as topic_name, 
                    v.name as venue_name,
                    sc.name as sponsor_company_name,
-                   GROUP_CONCAT(DISTINCT sl.name) as suitability_levels
+                   ${groupConcat} as suitability_levels
             FROM sessions s
             LEFT JOIN speakers sp ON s.speaker_id = sp.id
             LEFT JOIN session_types st ON s.session_type_id = st.id
@@ -370,7 +493,7 @@ class DatabaseManager {
             LEFT JOIN companies sc ON s.sponsor_company_id = sc.id
             LEFT JOIN session_suitability ss ON s.id = ss.session_id
             LEFT JOIN suitability_levels sl ON ss.suitability_level_id = sl.id
-            GROUP BY s.id
+            GROUP BY s.id, sp.name, sp.title, sp.company, st.name, t.name, v.name, sc.name
             ORDER BY s.start_time
         `;
         return await this.allQuery(sql);
@@ -378,13 +501,16 @@ class DatabaseManager {
 
     async getCurrentSessions() {
         const now = new Date().toISOString();
+        const groupConcat = this.isPostgres ? 'STRING_AGG(DISTINCT sl.name, \',\')' : 'GROUP_CONCAT(DISTINCT sl.name)';
+        const paramPlaceholder = this.isPostgres ? '$1' : '?';
+        const paramPlaceholder2 = this.isPostgres ? '$2' : '?';
         const sql = `
             SELECT s.*, 
                    sp.name as speaker_name, sp.title as speaker_title, sp.company as speaker_company,
                    st.name as session_type, 
                    t.name as topic_name, 
                    v.name as venue_name,
-                   GROUP_CONCAT(DISTINCT sl.name) as suitability_levels
+                   ${groupConcat} as suitability_levels
             FROM sessions s
             LEFT JOIN speakers sp ON s.speaker_id = sp.id
             LEFT JOIN session_types st ON s.session_type_id = st.id
@@ -392,8 +518,8 @@ class DatabaseManager {
             LEFT JOIN venues v ON s.venue_id = v.id
             LEFT JOIN session_suitability ss ON s.id = ss.session_id
             LEFT JOIN suitability_levels sl ON ss.suitability_level_id = sl.id
-            WHERE s.start_time <= ? AND s.end_time >= ?
-            GROUP BY s.id
+            WHERE s.start_time <= ${paramPlaceholder} AND s.end_time >= ${paramPlaceholder2}
+            GROUP BY s.id, sp.name, sp.title, sp.company, st.name, t.name, v.name
             ORDER BY s.start_time
         `;
         return await this.allQuery(sql, [now, now]);

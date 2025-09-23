@@ -2,6 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const VoiceHandler = require('./voice/voiceHandler');
 const DatabaseManager = require('./database/databaseManager');
+const PostgreSQLDatabaseManager = require('./database/pgDatabaseManager');
+const AdminRoutes = require('./routes/admin');
+const LeadDevScraper = require('./database/leaddevScraper');
 // NLPProcessor not needed - using OpenAI Realtime API instead
 
 class ConferenceVoiceAssistant {
@@ -9,9 +12,16 @@ class ConferenceVoiceAssistant {
         this.app = express();
         this.port = process.env.PORT || 3000;
         
-        // Initialize components
-        this.databaseManager = new DatabaseManager();
+        // Initialize components - use PostgreSQL if available
+        this.databaseManager = process.env.DATABASE_URL ? 
+            new PostgreSQLDatabaseManager() : 
+            new DatabaseManager();
+        
+        this.leadDevScraper = new LeadDevScraper(this.databaseManager);
         this.voiceHandler = new VoiceHandler(null, this.databaseManager);
+        
+        // Initialize admin routes for data refresh
+        this.adminRoutes = new AdminRoutes(this.databaseManager, this.leadDevScraper);
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -59,6 +69,9 @@ class ConferenceVoiceAssistant {
                 res.status(500).json({ error: error.message });
             }
         });
+        
+        // Admin routes for data management
+        this.app.use('/admin', this.adminRoutes.setupRoutes());
         
         // Analytics endpoint
         this.app.get('/analytics', this.voiceHandler.getAnalytics.bind(this.voiceHandler));
