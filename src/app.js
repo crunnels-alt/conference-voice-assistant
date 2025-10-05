@@ -49,13 +49,11 @@ class ConferenceVoiceAssistant {
             res.json({ status: 'healthy', timestamp: new Date().toISOString() });
         });
 
-        // Infobip Voice API webhooks
-        this.app.post('/webhook/voice/inbound', this.voiceHandler.handleInboundCall.bind(this.voiceHandler));
-        this.app.post('/webhook/voice/connected', this.voiceHandler.handleConnected.bind(this.voiceHandler));
-        this.app.post('/webhook/voice/hangup', this.voiceHandler.handleHangup.bind(this.voiceHandler));
-        
-        // OpenAI Realtime API webhooks
-        this.app.post('/webhook/openai/function-call', this.voiceHandler.handleFunctionCall.bind(this.voiceHandler));
+        // OpenAI Realtime API webhook (receives realtime.call.incoming events)
+        this.app.post('/webhook/openai/realtime', this.voiceHandler.handleIncomingCall.bind(this.voiceHandler));
+
+        // Legacy endpoints (keeping for backward compatibility during transition)
+        this.app.post('/webhook/voice/inbound', this.voiceHandler.handleIncomingCall.bind(this.voiceHandler));
 
         // Demo endpoints for testing
         this.app.post('/demo/query', this.voiceHandler.handleTextQuery.bind(this.voiceHandler));
@@ -67,10 +65,10 @@ class ConferenceVoiceAssistant {
                 res.status(500).json({ error: error.message });
             }
         });
-        
+
         // Admin routes for data management
         this.app.use('/admin', this.adminRoutes.setupRoutes());
-        
+
         // Analytics endpoint
         this.app.get('/analytics', this.voiceHandler.getAnalytics.bind(this.voiceHandler));
     }

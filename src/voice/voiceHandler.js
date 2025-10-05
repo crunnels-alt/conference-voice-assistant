@@ -1,5 +1,7 @@
 const RealtimeFunctions = require('../nlp/realtimeFunctions');
 const ContextManager = require('../nlp/contextManager');
+const axios = require('axios');
+const WebSocket = require('ws');
 
 class VoiceHandler {
     constructor(nlpProcessor, databaseManager) {
@@ -7,145 +9,265 @@ class VoiceHandler {
         this.databaseManager = databaseManager;
         this.realtimeFunctions = new RealtimeFunctions(databaseManager);
         this.contextManager = new ContextManager();
-        
+
         // Store active sessions for call management
         this.activeSessions = new Map();
+
+        // OpenAI API configuration
+        this.openaiApiKey = process.env.OPENAI_API_KEY;
+        this.openaiBaseUrl = 'https://api.openai.com/v1';
     }
 
     /**
-     * Handle inbound call from Infobip Voice API
-     * This sets up the initial call flow and connects to OpenAI Realtime API
+     * Handle incoming call webhook from OpenAI (via SIP)
+     * This is fired when OpenAI receives a SIP call directed to our project
      */
-    async handleInboundCall(req, res) {
-        console.log('Handling inbound call:', req.body);
+    async handleIncomingCall(req, res) {
+        console.log('📞 Incoming call from OpenAI:', JSON.stringify(req.body, null, 2));
 
         try {
-            // Create session for this call
-            const callId = req.body.callId || generateCallId();
-            const fromNumber = req.body.from;
-            
+            // Verify webhook signature (recommended for production)
+            // const isValid = this.verifyWebhookSignature(req);
+            // if (!isValid) {
+            //     return res.status(400).json({ error: 'Invalid signature' });
+            // }
+
+            const event = req.body;
+
+            if (event.type !== 'realtime.call.incoming') {
+                console.log('Ignoring non-incoming call event:', event.type);
+                return res.status(200).json({ status: 'ignored' });
+            }
+
+            const callId = event.data.call_id;
+            const sipHeaders = event.data.sip_headers || [];
+
+            // Extract caller information from SIP headers
+            const fromHeader = sipHeaders.find(h => h.name === 'From');
+            const toHeader = sipHeaders.find(h => h.name === 'To');
+            const callerNumber = fromHeader?.value || 'unknown';
+
+            console.log(`📞 Call from ${callerNumber} - Call ID: ${callId}`);
+
+            // Store session info
             this.activeSessions.set(callId, {
                 callId,
-                fromNumber,
+                callerNumber,
                 startTime: new Date(),
-                context: {}
+                status: 'incoming',
+                sipHeaders
             });
 
-            // Response to connect call to OpenAI Realtime API via SIP
-            const response = {
-                actions: [
-                    {
-                        action: "connect",
-                        from: process.env.INFOBIP_FROM_NUMBER || fromNumber,
-                        to: {
-                            type: "sip",
-                            sipUri: this.getOpenAIRealtimeSipUri()
-                        },
-                        maxDuration: 1800, // 30 minutes max
-                        connectTimeout: 30,
-                        onConnect: {
-                            webhook: `${process.env.WEBHOOK_BASE_URL}/webhook/voice/connected`
-                        },
-                        onHangup: {
-                            webhook: `${process.env.WEBHOOK_BASE_URL}/webhook/voice/hangup`
-                        }
-                    }
-                ]
-            };
+            // Accept the call and configure the Realtime session
+            await this.acceptCall(callId);
 
-            res.json(response);
+            // Start WebSocket connection to monitor the call
+            this.monitorCall(callId);
+
+            res.status(200).json({ status: 'accepted' });
 
         } catch (error) {
-            console.error('Error handling inbound call:', error);
-            res.status(500).json({ error: 'Failed to handle inbound call' });
+            console.error('❌ Error handling incoming call:', error);
+            res.status(500).json({ error: 'Failed to handle incoming call' });
         }
     }
 
     /**
-     * Handle connection established to OpenAI Realtime API
+     * Accept an incoming call and configure the OpenAI Realtime session
      */
-    async handleConnected(req, res) {
-        console.log('Connected to OpenAI Realtime API:', req.body);
-        
-        // Log successful connection
-        const callId = req.body.callId;
-        if (this.activeSessions.has(callId)) {
-            const session = this.activeSessions.get(callId);
-            session.connectedAt = new Date();
-            session.status = 'connected';
-        }
-
-        res.json({ status: 'acknowledged' });
-    }
-
-    /**
-     * Handle hangup events
-     */
-    async handleHangup(req, res) {
-        console.log('Call ended:', req.body);
-        
-        const callId = req.body.callId;
-        if (this.activeSessions.has(callId)) {
-            const session = this.activeSessions.get(callId);
-            session.endTime = new Date();
-            session.duration = session.endTime - session.startTime;
-            
-            console.log(`Call ${callId} ended. Duration: ${session.duration}ms`);
-            
-            // Clean up session after a delay (for any final webhooks)
-            setTimeout(() => {
-                this.activeSessions.delete(callId);
-            }, 60000); // 1 minute delay
-        }
-
-        res.json({ status: 'acknowledged' });
-    }
-
-    /**
-     * Handle function calls from OpenAI Realtime API
-     * This is the webhook endpoint that OpenAI calls when it needs conference data
-     */
-    async handleFunctionCall(req, res) {
-        console.log('Function call from OpenAI:', req.body);
+    async acceptCall(callId) {
+        console.log(`✅ Accepting call ${callId}...`);
 
         try {
-            const { function_name, parameters, call_id, user_query } = req.body;
-            
-            // Apply context resolution to parameters
-            const sessionId = call_id || 'default';
-            const contextualParams = this.contextManager.resolveContextualQuery(
-                sessionId, function_name, parameters
+            const response = await axios.post(
+                `${this.openaiBaseUrl}/realtime/calls/${callId}/accept`,
+                {
+                    type: 'realtime',
+                    model: 'gpt-realtime',
+                    voice: 'alloy', // Options: alloy, echo, fable, onyx, nova, shimmer
+                    instructions: this.getSystemInstructions(),
+                    tools: this.realtimeFunctions.getFunctionDefinitions().map(func => ({
+                        type: 'function',
+                        name: func.name,
+                        description: func.description,
+                        parameters: func.parameters
+                    })),
+                    tool_choice: 'auto',
+                    temperature: 0.8,
+                    max_response_output_tokens: 4096
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.openaiApiKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
             );
-            
-            // Execute the requested function with contextual parameters
-            const result = await this.realtimeFunctions.executeFunction(function_name, contextualParams);
-            
-            // Update conversation context with the interaction
-            this.contextManager.updateContext(
-                sessionId, function_name, contextualParams, result, user_query
-            );
-            
-            // Log the function call for analytics
-            this.logFunctionCall(call_id, function_name, contextualParams, result);
 
-            // Include suggestions in response for better UX
-            const suggestions = this.contextManager.generateSuggestions(sessionId);
+            console.log(`✅ Call ${callId} accepted successfully`);
 
-            res.json({
-                success: result.success,
-                data: result.data,
-                message: result.message,
-                count: result.count,
-                suggestions: suggestions.length > 0 ? suggestions : undefined
-            });
+            // Update session status
+            const session = this.activeSessions.get(callId);
+            if (session) {
+                session.status = 'accepted';
+                session.acceptedAt = new Date();
+            }
+
+            return response.data;
 
         } catch (error) {
-            console.error('Error executing function call:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Failed to execute function',
-                data: []
-            });
+            console.error(`❌ Error accepting call ${callId}:`, error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Monitor call via WebSocket to handle function calls and events
+     */
+    monitorCall(callId) {
+        console.log(`🔌 Opening WebSocket connection for call ${callId}...`);
+
+        const wsUrl = `wss://api.openai.com/v1/realtime?call_id=${callId}`;
+        const ws = new WebSocket(wsUrl, {
+            headers: {
+                'Authorization': `Bearer ${this.openaiApiKey}`
+            }
+        });
+
+        const session = this.activeSessions.get(callId);
+        if (session) {
+            session.websocket = ws;
+        }
+
+        ws.on('open', () => {
+            console.log(`✅ WebSocket connected for call ${callId}`);
+
+            // Send initial response.create to greet the user
+            ws.send(JSON.stringify({
+                type: 'response.create',
+                response: {
+                    instructions: 'Greet the user warmly and ask how you can help them with the LeadDev New York conference.'
+                }
+            }));
+        });
+
+        ws.on('message', async (data) => {
+            try {
+                const event = JSON.parse(data.toString());
+                await this.handleRealtimeEvent(callId, event, ws);
+            } catch (error) {
+                console.error(`❌ Error processing WebSocket message for call ${callId}:`, error);
+            }
+        });
+
+        ws.on('error', (error) => {
+            console.error(`❌ WebSocket error for call ${callId}:`, error);
+        });
+
+        ws.on('close', () => {
+            console.log(`🔌 WebSocket closed for call ${callId}`);
+            const session = this.activeSessions.get(callId);
+            if (session) {
+                session.status = 'ended';
+                session.endTime = new Date();
+            }
+        });
+    }
+
+    /**
+     * Handle Realtime API events from WebSocket
+     */
+    async handleRealtimeEvent(callId, event, ws) {
+        console.log(`📨 Event for call ${callId}:`, event.type);
+
+        switch (event.type) {
+            case 'conversation.item.created':
+                // Track conversation items
+                break;
+
+            case 'response.function_call_arguments.done':
+                // Function call completed, execute it
+                await this.executeFunctionCall(callId, event, ws);
+                break;
+
+            case 'response.done':
+                console.log(`✅ Response completed for call ${callId}`);
+                break;
+
+            case 'error':
+                console.error(`❌ Error event for call ${callId}:`, event.error);
+                break;
+
+            default:
+                // Log other events for debugging
+                if (process.env.NODE_ENV === 'development') {
+                    console.log(`Event: ${event.type}`, JSON.stringify(event, null, 2));
+                }
+        }
+    }
+
+    /**
+     * Execute a function call from OpenAI Realtime API
+     */
+    async executeFunctionCall(callId, event, ws) {
+        const { name, call_id, arguments: argsString } = event;
+
+        console.log(`🔧 Executing function: ${name} for call ${callId}`);
+
+        try {
+            const args = JSON.parse(argsString);
+
+            // Apply context resolution
+            const contextualParams = this.contextManager.resolveContextualQuery(
+                callId, name, args
+            );
+
+            // Execute the function
+            const result = await this.realtimeFunctions.executeFunction(name, contextualParams);
+
+            // Update conversation context
+            this.contextManager.updateContext(
+                callId, name, contextualParams, result
+            );
+
+            // Log for analytics
+            this.logFunctionCall(callId, name, contextualParams, result);
+
+            // Send function output back to OpenAI
+            ws.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                    type: 'function_call_output',
+                    call_id: call_id,
+                    output: JSON.stringify({
+                        success: result.success,
+                        data: result.data,
+                        message: result.message,
+                        count: result.count
+                    })
+                }
+            }));
+
+            // Trigger response generation with the function output
+            ws.send(JSON.stringify({
+                type: 'response.create'
+            }));
+
+        } catch (error) {
+            console.error(`❌ Error executing function ${name}:`, error);
+
+            // Send error back to OpenAI
+            ws.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                    type: 'function_call_output',
+                    call_id: call_id,
+                    output: JSON.stringify({
+                        success: false,
+                        error: error.message
+                    })
+                }
+            }));
         }
     }
 
@@ -203,28 +325,63 @@ class VoiceHandler {
     }
 
     /**
-     * Get OpenAI Realtime API SIP URI
-     * This is where Infobip will connect the call
+     * Hangup a call programmatically
      */
-    getOpenAIRealtimeSipUri() {
-        // The SIP URI format for OpenAI Realtime API
-        // This will include function definitions and system instructions
-        const functionDefinitions = this.realtimeFunctions.getFunctionDefinitions();
-        
-        // Encode the configuration for OpenAI Realtime API
-        const config = {
-            functions: functionDefinitions,
-            function_call_webhook: `${process.env.WEBHOOK_BASE_URL}/webhook/openai/function-call`,
-            instructions: this.getSystemInstructions(),
-            voice: "alloy", // or "echo", "fable", "onyx", "nova", "shimmer"
-            model: "gpt-4o-realtime-preview"
-        };
+    async hangupCall(callId) {
+        console.log(`📴 Hanging up call ${callId}...`);
 
-        // In a real implementation, you would encode this config and pass it to OpenAI
-        // For now, we'll construct the expected SIP URI format
-        const encodedConfig = Buffer.from(JSON.stringify(config)).toString('base64');
-        
-        return `sip:${encodedConfig}@api.openai.com`;
+        try {
+            const response = await axios.post(
+                `${this.openaiBaseUrl}/realtime/calls/${callId}/hangup`,
+                {},
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.openaiApiKey}`
+                    }
+                }
+            );
+
+            console.log(`✅ Call ${callId} hung up successfully`);
+
+            // Close WebSocket if exists
+            const session = this.activeSessions.get(callId);
+            if (session?.websocket) {
+                session.websocket.close();
+            }
+
+            return response.data;
+
+        } catch (error) {
+            console.error(`❌ Error hanging up call ${callId}:`, error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Transfer/refer a call to another number
+     */
+    async referCall(callId, targetUri) {
+        console.log(`📞 Referring call ${callId} to ${targetUri}...`);
+
+        try {
+            const response = await axios.post(
+                `${this.openaiBaseUrl}/realtime/calls/${callId}/refer`,
+                { target_uri: targetUri },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.openaiApiKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            console.log(`✅ Call ${callId} referred successfully`);
+            return response.data;
+
+        } catch (error) {
+            console.error(`❌ Error referring call ${callId}:`, error.response?.data || error.message);
+            throw error;
+        }
     }
 
     /**
