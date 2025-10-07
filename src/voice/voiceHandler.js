@@ -61,14 +61,16 @@ class VoiceHandler {
             const event = req.body;
 
             if (event.type !== 'realtime.call.incoming') {
-                console.log('Ignoring non-incoming call event:', event.type);
                 return res.status(200).json({ status: 'ignored' });
             }
 
             const callId = event.data.call_id;
-            const sipHeaders = event.data.sip_headers || [];
 
-            // Extract caller information from SIP headers
+            // Respond immediately - before doing ANYTHING else
+            res.status(200).json({ status: 'accepted' });
+
+            // Now do everything else asynchronously
+            const sipHeaders = event.data.sip_headers || [];
             const fromHeader = sipHeaders.find(h => h.name === 'From');
             const callerNumber = fromHeader?.value || 'unknown';
 
@@ -83,15 +85,10 @@ class VoiceHandler {
                 sipHeaders
             });
 
-            // Respond immediately to webhook (must be fast to avoid timeout)
-            res.status(200).json({ status: 'accepted' });
-
-            // Accept the call asynchronously (don't block webhook response)
+            // Accept the call
             this.acceptCall(callId).catch(error => {
                 console.error(`❌ Failed to accept call ${callId}:`, error.message);
             });
-
-            console.log(`✅ Webhook acknowledged for ${callId}`);
 
         } catch (error) {
             console.error('❌ Error handling incoming call:', error);
