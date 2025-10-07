@@ -120,6 +120,7 @@ class VoiceHandler {
                 type: 'realtime',
                 model: 'gpt-realtime',
                 voice: 'alloy',
+                modalities: ['audio', 'text'],
                 instructions: this.getSystemInstructions(),
                 tools: this.realtimeFunctions.getFunctionDefinitions().map(func => ({
                     type: 'function',
