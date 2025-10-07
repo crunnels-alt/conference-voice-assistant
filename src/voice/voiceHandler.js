@@ -92,13 +92,15 @@ class VoiceHandler {
                 sipHeaders
             });
 
-            // Accept the call and configure the Realtime session
-            await this.acceptCall(callId);
-
             // Respond immediately to webhook (must be fast to avoid timeout)
             res.status(200).json({ status: 'accepted' });
 
-            console.log(`✅ Call accepted - audio flows via SIP, function calls via webhooks`);
+            // Accept the call asynchronously (don't block webhook response)
+            this.acceptCall(callId).catch(error => {
+                console.error(`❌ Failed to accept call ${callId} after webhook response:`, error.message);
+            });
+
+            console.log(`✅ Webhook acknowledged - accepting call in background`);
 
         } catch (error) {
             console.error('❌ Error handling incoming call:', error);
