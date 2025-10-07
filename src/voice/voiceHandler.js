@@ -95,9 +95,11 @@ class VoiceHandler {
             // Accept the call and configure the Realtime session
             await this.acceptCall(callId);
 
-            // For SIP calls, OpenAI manages the session internally
-            // Function calls will come via webhook events, not WebSocket
-            console.log(`✅ Call configuration complete - awaiting function calls via webhooks`);
+            // Open WebSocket to monitor the call and trigger initial greeting
+            // This is essential - without it, the AI won't start speaking
+            this.monitorCall(callId);
+
+            console.log(`✅ Call configuration complete`);
 
             res.status(200).json({ status: 'accepted' });
 
@@ -158,16 +160,16 @@ class VoiceHandler {
 
     /**
      * Monitor call via WebSocket to handle function calls and events
+     * This is REQUIRED to trigger the initial AI greeting
      */
     monitorCall(callId) {
         console.log(`🔌 Opening WebSocket connection for call ${callId}...`);
 
-        // Correct WebSocket endpoint for Realtime API calls
-        const wsUrl = `wss://api.openai.com/v1/realtime/calls/${callId}`;
+        // WebSocket endpoint uses call_id as query parameter
+        const wsUrl = `wss://api.openai.com/v1/realtime?call_id=${callId}`;
         const ws = new WebSocket(wsUrl, {
             headers: {
-                'Authorization': `Bearer ${this.openaiApiKey}`,
-                'OpenAI-Beta': 'realtime=v1'
+                'Authorization': `Bearer ${this.openaiApiKey}`
             }
         });
 
@@ -179,7 +181,8 @@ class VoiceHandler {
         ws.on('open', () => {
             console.log(`✅ WebSocket connected for call ${callId}`);
 
-            // Send initial response.create to greet the user
+            // Send initial response.create to trigger the AI greeting
+            // This is ESSENTIAL - without this, the AI won't start speaking
             ws.send(JSON.stringify({
                 type: 'response.create',
                 response: {
