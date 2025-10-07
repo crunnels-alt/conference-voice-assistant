@@ -113,20 +113,25 @@ class VoiceHandler {
         console.log(`✅ Accepting call ${callId}...`);
 
         try {
+            // Configure the Realtime session with full instructions and tools
+            const acceptPayload = {
+                type: 'realtime',
+                model: 'gpt-realtime',
+                voice: 'alloy',
+                instructions: this.getSystemInstructions(),
+                tools: this.realtimeFunctions.getFunctionDefinitions().map(func => ({
+                    type: 'function',
+                    name: func.name,
+                    description: func.description,
+                    parameters: func.parameters
+                }))
+            };
+
+            console.log('Accept payload:', JSON.stringify(acceptPayload, null, 2));
+
             const response = await axios.post(
                 `${this.openaiBaseUrl}/realtime/calls/${callId}/accept`,
-                {
-                    type: 'realtime',
-                    model: 'gpt-realtime',
-                    voice: 'alloy', // Options: alloy, echo, fable, onyx, nova, shimmer
-                    instructions: this.getSystemInstructions(),
-                    tools: this.realtimeFunctions.getFunctionDefinitions().map(func => ({
-                        type: 'function',
-                        name: func.name,
-                        description: func.description,
-                        parameters: func.parameters
-                    }))
-                },
+                acceptPayload,
                 {
                     headers: {
                         'Authorization': `Bearer ${this.openaiApiKey}`,
@@ -422,7 +427,9 @@ class VoiceHandler {
      * Get system instructions for OpenAI Realtime API
      */
     getSystemInstructions() {
-        return `You are the voice assistant for LeadDev New York, taking place October 15-16, 2025 in New York City.
+        return `IMPORTANT: Always respond in English only, regardless of the caller's language or accent. Do not switch to other languages.
+
+You are the voice assistant for LeadDev New York, taking place October 15-16, 2025 in New York City.
 
 This is a premier conference for engineering leaders, covering topics like:
 - Engineering leadership and management
