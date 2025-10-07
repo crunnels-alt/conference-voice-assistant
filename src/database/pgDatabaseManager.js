@@ -97,9 +97,12 @@ class PostgreSQLDatabaseManager {
     async runQuery(sql, params = []) {
         try {
             const result = await this.pgPool.query(sql, params);
-            return { 
-                id: result.rows[0]?.id,
-                changes: result.rowCount 
+            // If the query has RETURNING clause, return the first row's id
+            // Otherwise return rowCount for compatibility
+            return {
+                id: result.rows[0]?.id || null,
+                changes: result.rowCount,
+                rows: result.rows
             };
         } catch (err) {
             throw err;

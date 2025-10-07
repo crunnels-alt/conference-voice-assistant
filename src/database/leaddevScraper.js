@@ -322,13 +322,33 @@ class LeadDevScraper {
 
         console.log(`Inserting ${sessions.length} sessions into database...`);
 
-        // Ensure default venue exists
-        let defaultVenueId = 1;
+        // CRITICAL: Create default venue FIRST, before any session insertions
+        console.log('🏢 Creating default venue...');
+        let defaultVenueId;
         try {
             const defaultVenue = await this.databaseManager.findOrCreateVenue('Main Conference Hall');
             defaultVenueId = defaultVenue.id;
+            console.log(`✅ Default venue created/found with ID: ${defaultVenueId}`);
         } catch (error) {
-            console.warn('Could not create default venue, using ID 1:', error.message);
+            console.error('❌ CRITICAL: Could not create default venue:', error.message);
+            console.error('Cannot proceed with session insertions - aborting');
+            return; // Stop here - don't try to insert sessions without a valid venue
+        }
+
+        // Verify venue actually exists before proceeding
+        try {
+            const venueCheck = await this.databaseManager.getQuery(
+                'SELECT id FROM venues WHERE id = $1',
+                [defaultVenueId]
+            );
+            if (!venueCheck) {
+                console.error(`❌ CRITICAL: Venue ID ${defaultVenueId} not found in database after creation`);
+                return;
+            }
+            console.log(`✅ Verified venue ID ${defaultVenueId} exists in database`);
+        } catch (error) {
+            console.error('❌ Error verifying venue:', error.message);
+            return;
         }
 
         for (const session of sessions) {
@@ -345,7 +365,7 @@ class LeadDevScraper {
                         speakerId = existingSpeaker.id;
                     } else {
                         const speakerResult = await this.databaseManager.runQuery(
-                            'INSERT INTO speakers (name, title, company) VALUES ($1, $2, $3)',
+                            'INSERT INTO speakers (name, title, company) VALUES ($1, $2, $3) RETURNING id',
                             [session.speaker.name, session.speaker.title || '', session.speaker.company || '']
                         );
                         speakerId = speakerResult.id;
@@ -364,7 +384,7 @@ class LeadDevScraper {
                         sessionTypeId = existingType.id;
                     } else {
                         const typeResult = await this.databaseManager.runQuery(
-                            'INSERT INTO session_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
+                            'INSERT INTO session_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING RETURNING id',
                             [session.sessionType]
                         );
                         sessionTypeId = typeResult.id;
@@ -381,10 +401,10 @@ class LeadDevScraper {
                     [session.title, session.description, startTime, endTime, speakerId, sessionTypeId, defaultVenueId]
                 );
 
-                console.log(`Inserted session: ${session.title}`);
+                console.log(`✅ Inserted session: ${session.title}`);
 
             } catch (error) {
-                console.error(`Error inserting session "${session.title}":`, error.message);
+                console.error(`❌ Error inserting session "${session.title}":`, error.message);
             }
         }
     }
