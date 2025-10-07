@@ -100,7 +100,10 @@ class ConferenceVoiceAssistant {
             this.leadDevScraper = new LeadDevScraper(this.databaseManager);
             this.voiceHandler = new VoiceHandler(null, this.databaseManager);
             this.adminRoutes = new AdminRoutes(this.databaseManager, this.leadDevScraper);
-            
+
+            // NOW initialize auto-refresh (after database and scraper are ready)
+            this.adminRoutes.initializeAutoRefresh();
+
             this.app.listen(this.port, () => {
                 console.log(`Conference Voice Assistant running on port ${this.port}`);
                 console.log(`Webhook URL: ${process.env.WEBHOOK_BASE_URL || 'http://localhost:' + this.port}`);

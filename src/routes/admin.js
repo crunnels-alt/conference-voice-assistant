@@ -7,9 +7,13 @@ class AdminRoutes {
         this.leadDevScraper = leadDevScraper;
         this.lastScrapeTime = null;
         this.scrapeInProgress = false;
-        
-        // Auto-refresh setup
-        if (process.env.AUTO_SCRAPE === 'true') {
+        this.autoRefreshInitialized = false;
+    }
+
+    // Initialize auto-refresh AFTER database is ready
+    initializeAutoRefresh() {
+        if (!this.autoRefreshInitialized && process.env.AUTO_SCRAPE === 'true') {
+            this.autoRefreshInitialized = true;
             this.setupAutoRefresh();
         }
     }
