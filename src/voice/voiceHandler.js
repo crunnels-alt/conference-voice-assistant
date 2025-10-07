@@ -19,6 +19,40 @@ class VoiceHandler {
     }
 
     /**
+     * Handle function call webhook from OpenAI Realtime API
+     * This is fired when the AI needs to call a function during a conversation
+     */
+    async handleFunctionCallWebhook(req, res) {
+        console.log('🔧 Function call webhook:', JSON.stringify(req.body, null, 2));
+
+        try {
+            const event = req.body;
+            const { call_id, function_name, arguments: argsString, call_id: functionCallId } = event.data || event;
+
+            console.log(`🔧 Executing function: ${function_name}`);
+
+            // Parse arguments
+            const args = typeof argsString === 'string' ? JSON.parse(argsString) : argsString;
+
+            // Execute the function
+            const result = await this.realtimeFunctions.executeFunction(function_name, args);
+
+            console.log(`✅ Function ${function_name} executed:`, result);
+
+            // Return the result to OpenAI
+            res.status(200).json({
+                output: JSON.stringify(result)
+            });
+
+        } catch (error) {
+            console.error('❌ Error handling function call webhook:', error);
+            res.status(500).json({
+                error: error.message
+            });
+        }
+    }
+
+    /**
      * Handle incoming call webhook from OpenAI (via SIP)
      * This is fired when OpenAI receives a SIP call directed to our project
      */
@@ -61,8 +95,9 @@ class VoiceHandler {
             // Accept the call and configure the Realtime session
             await this.acceptCall(callId);
 
-            // Start WebSocket connection to monitor the call
-            this.monitorCall(callId);
+            // For SIP calls, OpenAI manages the session internally
+            // Function calls will come via webhook events, not WebSocket
+            console.log(`✅ Call configuration complete - awaiting function calls via webhooks`);
 
             res.status(200).json({ status: 'accepted' });
 

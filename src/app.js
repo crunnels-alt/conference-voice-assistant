@@ -48,8 +48,20 @@ class ConferenceVoiceAssistant {
             res.json({ status: 'healthy', timestamp: new Date().toISOString() });
         });
 
-        // OpenAI Realtime API webhook (receives realtime.call.incoming events)
-        this.app.post('/webhook/openai/realtime', this.voiceHandler.handleIncomingCall.bind(this.voiceHandler));
+        // OpenAI Realtime API webhook (receives all Realtime events)
+        this.app.post('/webhook/openai/realtime', async (req, res) => {
+            const event = req.body;
+
+            // Route different event types
+            if (event.type === 'realtime.call.incoming') {
+                return this.voiceHandler.handleIncomingCall(req, res);
+            } else if (event.type === 'realtime.function_call') {
+                return this.voiceHandler.handleFunctionCallWebhook(req, res);
+            } else {
+                console.log(`📨 Received OpenAI event: ${event.type}`);
+                res.status(200).json({ status: 'received' });
+            }
+        });
 
         // Legacy endpoints (keeping for backward compatibility during transition)
         this.app.post('/webhook/voice/inbound', this.voiceHandler.handleIncomingCall.bind(this.voiceHandler));
