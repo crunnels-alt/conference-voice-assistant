@@ -137,7 +137,8 @@ class VoiceHandler {
                 {
                     headers: {
                         'Authorization': `Bearer ${this.openaiApiKey}`,
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'OpenAI-Beta': 'realtime=v1'
                     }
                 }
             );
