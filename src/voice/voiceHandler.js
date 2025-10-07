@@ -127,10 +127,12 @@ class VoiceHandler {
     monitorCall(callId) {
         console.log(`🔌 Opening WebSocket connection for call ${callId}...`);
 
-        const wsUrl = `wss://api.openai.com/v1/realtime?call_id=${callId}`;
+        // Correct WebSocket endpoint for Realtime API calls
+        const wsUrl = `wss://api.openai.com/v1/realtime/calls/${callId}`;
         const ws = new WebSocket(wsUrl, {
             headers: {
-                'Authorization': `Bearer ${this.openaiApiKey}`
+                'Authorization': `Bearer ${this.openaiApiKey}`,
+                'OpenAI-Beta': 'realtime=v1'
             }
         });
 
