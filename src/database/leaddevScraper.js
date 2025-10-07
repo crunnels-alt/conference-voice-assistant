@@ -321,7 +321,16 @@ class LeadDevScraper {
         }
 
         console.log(`Inserting ${sessions.length} sessions into database...`);
-        
+
+        // Ensure default venue exists
+        let defaultVenueId = 1;
+        try {
+            const defaultVenue = await this.databaseManager.findOrCreateVenue('Main Conference Hall');
+            defaultVenueId = defaultVenue.id;
+        } catch (error) {
+            console.warn('Could not create default venue, using ID 1:', error.message);
+        }
+
         for (const session of sessions) {
             try {
                 // Insert or get speaker
@@ -369,7 +378,7 @@ class LeadDevScraper {
                 const sessionResult = await this.databaseManager.runQuery(`
                     INSERT INTO sessions (title, description, start_time, end_time, speaker_id, session_type_id, venue_id)
                     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                    [session.title, session.description, startTime, endTime, speakerId, sessionTypeId, 1] // Default to venue 1
+                    [session.title, session.description, startTime, endTime, speakerId, sessionTypeId, defaultVenueId]
                 );
 
                 console.log(`Inserted session: ${session.title}`);
