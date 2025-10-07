@@ -393,14 +393,34 @@ class LeadDevScraper {
                     }
                 }
 
+                // Insert or get topic (use first suitability level as topic)
+                let topicId = null;
+                if (session.suitability && session.suitability.length > 0) {
+                    const topicName = session.suitability[0]; // Use first suitability level
+                    const existingTopic = await this.databaseManager.getQuery(
+                        'SELECT id FROM topics WHERE name = $1',
+                        [topicName]
+                    );
+
+                    if (existingTopic) {
+                        topicId = existingTopic.id;
+                    } else {
+                        const topicResult = await this.databaseManager.runQuery(
+                            'INSERT INTO topics (name) VALUES ($1) ON CONFLICT (name) DO NOTHING RETURNING id',
+                            [topicName]
+                        );
+                        topicId = topicResult.id;
+                    }
+                }
+
                 // Insert session
                 const startTime = session.time ? session.time.start : new Date().toISOString();
                 const endTime = session.time ? session.time.end : new Date(Date.now() + 45 * 60 * 1000).toISOString();
 
                 const sessionResult = await this.databaseManager.runQuery(`
-                    INSERT INTO sessions (title, description, start_time, end_time, speaker_id, session_type_id, venue_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                    [session.title, session.description, startTime, endTime, speakerId, sessionTypeId, defaultVenueId]
+                    INSERT INTO sessions (title, description, start_time, end_time, speaker_id, session_type_id, topic_id, venue_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                    [session.title, session.description, startTime, endTime, speakerId, sessionTypeId, topicId, defaultVenueId]
                 );
 
                 console.log(`✅ Inserted session: ${session.title}`);
