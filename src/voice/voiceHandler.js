@@ -130,8 +130,7 @@ class VoiceHandler {
                         parameters: func.parameters
                     })),
                     tool_choice: 'auto',
-                    temperature: 0.8,
-                    max_response_output_tokens: 4096
+                    temperature: 0.8
                 },
                 {
                     headers: {
