@@ -14,15 +14,14 @@ class ConferenceVoiceAssistant {
         
         // Initialize components - try PostgreSQL first, fallback to SQLite
         this.databaseManager = null;
-        
-        this.leadDevScraper = new LeadDevScraper(this.databaseManager);
-        this.voiceHandler = new VoiceHandler(null, this.databaseManager);
-        
-        // Initialize admin routes for data refresh
-        this.adminRoutes = new AdminRoutes(this.databaseManager, this.leadDevScraper);
-        
+
+        // Don't create these until database is ready
+        this.leadDevScraper = null;
+        this.voiceHandler = null;
+        this.adminRoutes = null;
+
         this.setupMiddleware();
-        this.setupRoutes();
+        // setupRoutes() will be called after database initialization
     }
 
     setupMiddleware() {
@@ -96,12 +95,15 @@ class ConferenceVoiceAssistant {
                 console.log('✅ SQLite database initialized successfully');
             }
             
-            // Re-initialize components that depend on database manager
+            // Initialize components that depend on database manager
             this.leadDevScraper = new LeadDevScraper(this.databaseManager);
             this.voiceHandler = new VoiceHandler(null, this.databaseManager);
             this.adminRoutes = new AdminRoutes(this.databaseManager, this.leadDevScraper);
 
-            // NOW initialize auto-refresh (after database and scraper are ready)
+            // Setup routes NOW that all components are initialized
+            this.setupRoutes();
+
+            // Initialize auto-refresh (after database and scraper are ready)
             this.adminRoutes.initializeAutoRefresh();
 
             this.app.listen(this.port, () => {
