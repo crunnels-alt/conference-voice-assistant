@@ -145,7 +145,9 @@ class LeadDevScraper {
     }
 
     extractSpeakerInfo($, $el) {
+        // LeadDev uses .ld-card__contributors__item__name for speaker names
         const speakerSelectors = [
+            '.ld-card__contributors__item__name', // LeadDev specific
             '.speaker-name',
             '.speaker',
             '[class*="speaker"]',
@@ -157,8 +159,8 @@ class LeadDevScraper {
             if (speakerElement.length) {
                 return {
                     name: speakerElement.text().trim(),
-                    title: this.extractText($el, ['.speaker-title', '.title']),
-                    company: this.extractText($el, ['.speaker-company', '.company'])
+                    title: this.extractText($el, ['.ld-card__contributors__item__role', '.speaker-title', '.title']),
+                    company: this.extractText($el, ['.ld-card__contributors__item__company', '.speaker-company', '.company'])
                 };
             }
         }
