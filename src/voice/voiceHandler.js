@@ -98,14 +98,7 @@ class VoiceHandler {
             // Respond immediately to webhook (must be fast to avoid timeout)
             res.status(200).json({ status: 'accepted' });
 
-            console.log(`✅ Call accepted, opening WebSocket in background...`);
-
-            // Open WebSocket in background after a short delay to allow session to establish
-            // This is non-blocking and won't delay the webhook response
-            setTimeout(() => {
-                console.log(`🔌 Opening WebSocket for call ${callId}...`);
-                this.monitorCall(callId);
-            }, 2000); // 2 second delay to ensure session is ready
+            console.log(`✅ Call accepted - audio flows via SIP, function calls via webhooks`);
 
         } catch (error) {
             console.error('❌ Error handling incoming call:', error);
