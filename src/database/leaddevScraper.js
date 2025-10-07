@@ -328,15 +328,15 @@ class LeadDevScraper {
                 let speakerId = null;
                 if (session.speaker && session.speaker.name) {
                     const existingSpeaker = await this.databaseManager.getQuery(
-                        'SELECT id FROM speakers WHERE name = ?', 
+                        'SELECT id FROM speakers WHERE name = $1',
                         [session.speaker.name]
                     );
-                    
+
                     if (existingSpeaker) {
                         speakerId = existingSpeaker.id;
                     } else {
                         const speakerResult = await this.databaseManager.runQuery(
-                            'INSERT INTO speakers (name, title, company) VALUES (?, ?, ?)',
+                            'INSERT INTO speakers (name, title, company) VALUES ($1, $2, $3)',
                             [session.speaker.name, session.speaker.title || '', session.speaker.company || '']
                         );
                         speakerId = speakerResult.id;
@@ -347,15 +347,15 @@ class LeadDevScraper {
                 let sessionTypeId = null;
                 if (session.sessionType) {
                     const existingType = await this.databaseManager.getQuery(
-                        'SELECT id FROM session_types WHERE name = ?', 
+                        'SELECT id FROM session_types WHERE name = $1',
                         [session.sessionType]
                     );
-                    
+
                     if (existingType) {
                         sessionTypeId = existingType.id;
                     } else {
                         const typeResult = await this.databaseManager.runQuery(
-                            'INSERT OR IGNORE INTO session_types (name) VALUES (?)',
+                            'INSERT INTO session_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
                             [session.sessionType]
                         );
                         sessionTypeId = typeResult.id;
@@ -365,10 +365,10 @@ class LeadDevScraper {
                 // Insert session
                 const startTime = session.time ? session.time.start : new Date().toISOString();
                 const endTime = session.time ? session.time.end : new Date(Date.now() + 45 * 60 * 1000).toISOString();
-                
+
                 const sessionResult = await this.databaseManager.runQuery(`
-                    INSERT INTO sessions (title, description, start_time, end_time, speaker_id, session_type_id, venue_id) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    INSERT INTO sessions (title, description, start_time, end_time, speaker_id, session_type_id, venue_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                     [session.title, session.description, startTime, endTime, speakerId, sessionTypeId, 1] // Default to venue 1
                 );
 
