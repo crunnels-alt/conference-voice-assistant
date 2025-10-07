@@ -116,6 +116,7 @@ class LeadDevScraper {
             const time = this.extractTimeInfo($, $el);
             const suitability = this.extractSuitabilityInfo($, $el);
             const sponsor = this.extractSponsorInfo($, $el);
+            const keywords = this.extractKeywords(title || '', description || '');
 
             if (!title) return null;
 
@@ -127,6 +128,7 @@ class LeadDevScraper {
                 time,
                 suitability,
                 sponsor,
+                keywords,
                 rawHtml: $el.html() // For debugging
             };
 
@@ -249,6 +251,64 @@ class LeadDevScraper {
         }
 
         return null;
+    }
+
+    extractKeywords(title, description) {
+        // Engineering leadership and tech conference keyword categories
+        const keywordPatterns = {
+            // AI & Machine Learning
+            'AI': /\b(ai|artificial intelligence|machine learning|ml|llm|genai|gpt|copilot|chatgpt)\b/gi,
+            'AI Engineering': /\b(ai.assisted|ai.enabled|ai.powered|prompt|llm|model)\b/gi,
+
+            // Leadership & Management
+            'Engineering Management': /\b(engineering manager|em|manager|managing|management)\b/gi,
+            'Leadership': /\b(leadership|leading|leader|leaders)\b/gi,
+            'Tech Lead': /\b(tech lead|technical lead|tl)\b/gi,
+            'Director': /\b(director|vp|vice president|head of)\b/gi,
+            'Staff Engineer': /\b(staff engineer|staff\+|principal|senior engineer)\b/gi,
+
+            // Team & Culture
+            'Team Building': /\b(team building|team culture|collaboration|teamwork)\b/gi,
+            'Hiring': /\b(hiring|recruiting|interviewing|onboarding)\b/gi,
+            'Diversity': /\b(diversity|inclusion|dei|equity|belonging)\b/gi,
+            'Remote Work': /\b(remote|distributed|hybrid|international team)\b/gi,
+
+            // Technical Topics
+            'Architecture': /\b(architecture|system design|infrastructure|platform)\b/gi,
+            'DevOps': /\b(devops|ci\/cd|deployment|pipeline|automation)\b/gi,
+            'Testing': /\b(testing|test automation|qa|quality)\b/gi,
+            'Observability': /\b(observability|monitoring|metrics|logging|debugging)\b/gi,
+            'Security': /\b(security|secure|vulnerability|compliance)\b/gi,
+
+            // Processes & Practices
+            'Agile': /\b(agile|scrum|sprint|kanban)\b/gi,
+            'Technical Debt': /\b(technical debt|tech debt|refactor|legacy)\b/gi,
+            'Productivity': /\b(productivity|efficiency|developer experience|dx)\b/gi,
+            'Code Review': /\b(code review|pull request|pr review)\b/gi,
+
+            // Soft Skills
+            'Communication': /\b(communication|communicating|stakeholder)\b/gi,
+            'Mentoring': /\b(mentor|mentoring|coaching|career development)\b/gi,
+            'Conflict Resolution': /\b(conflict|disagreement|difficult conversation)\b/gi,
+            'Strategy': /\b(strategy|strategic|roadmap|planning|vision)\b/gi,
+
+            // Business & Product
+            'Product': /\b(product|product management|pm|business value)\b/gi,
+            'Scaling': /\b(scal(e|ing)|growth|expansion)\b/gi,
+            'Migration': /\b(migration|migrat(e|ing)|transition)\b/gi,
+            'Incident Management': /\b(incident|outage|post.mortem|on.call)\b/gi
+        };
+
+        const text = `${title} ${description}`.toLowerCase();
+        const keywords = [];
+
+        for (const [keyword, pattern] of Object.entries(keywordPatterns)) {
+            if (pattern.test(text)) {
+                keywords.push(keyword);
+            }
+        }
+
+        return keywords;
     }
 
     parseTime(timeString) {
@@ -422,10 +482,15 @@ class LeadDevScraper {
                     }
                 }
 
-                // Insert or get topic (use first suitability level as topic)
+                // Insert or get topic (prioritize keywords, fallback to suitability level)
                 let topicId = null;
-                if (session.suitability && session.suitability.length > 0) {
-                    const topicName = session.suitability[0]; // Use first suitability level
+                const topicName = (session.keywords && session.keywords.length > 0)
+                    ? session.keywords[0]  // Use first keyword
+                    : (session.suitability && session.suitability.length > 0)
+                        ? session.suitability[0]  // Fallback to suitability
+                        : null;
+
+                if (topicName) {
                     const existingTopic = await this.databaseManager.getQuery(
                         'SELECT id FROM topics WHERE name = $1',
                         [topicName]
@@ -439,6 +504,15 @@ class LeadDevScraper {
                             [topicName]
                         );
                         topicId = topicResult.id;
+                    }
+
+                    // Store additional keywords as separate topics (for richer searching)
+                    const allKeywords = session.keywords || [];
+                    for (let i = 1; i < Math.min(allKeywords.length, 5); i++) {
+                        await this.databaseManager.runQuery(
+                            'INSERT INTO topics (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
+                            [allKeywords[i]]
+                        );
                     }
                 }
 
