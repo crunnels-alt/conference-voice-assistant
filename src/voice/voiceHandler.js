@@ -95,13 +95,17 @@ class VoiceHandler {
             // Accept the call and configure the Realtime session
             await this.acceptCall(callId);
 
-            // Open WebSocket to monitor the call and trigger initial greeting
-            // This is essential - without it, the AI won't start speaking
-            this.monitorCall(callId);
-
-            console.log(`✅ Call configuration complete`);
-
+            // Respond immediately to webhook (must be fast to avoid timeout)
             res.status(200).json({ status: 'accepted' });
+
+            console.log(`✅ Call accepted, opening WebSocket in background...`);
+
+            // Open WebSocket in background after a short delay to allow session to establish
+            // This is non-blocking and won't delay the webhook response
+            setTimeout(() => {
+                console.log(`🔌 Opening WebSocket for call ${callId}...`);
+                this.monitorCall(callId);
+            }, 2000); // 2 second delay to ensure session is ready
 
         } catch (error) {
             console.error('❌ Error handling incoming call:', error);
