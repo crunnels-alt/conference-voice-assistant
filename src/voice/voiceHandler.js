@@ -57,15 +57,7 @@ class VoiceHandler {
      * This is fired when OpenAI receives a SIP call directed to our project
      */
     async handleIncomingCall(req, res) {
-        console.log('📞 Incoming call from OpenAI:', JSON.stringify(req.body, null, 2));
-
         try {
-            // Verify webhook signature (recommended for production)
-            // const isValid = this.verifyWebhookSignature(req);
-            // if (!isValid) {
-            //     return res.status(400).json({ error: 'Invalid signature' });
-            // }
-
             const event = req.body;
 
             if (event.type !== 'realtime.call.incoming') {
@@ -78,10 +70,9 @@ class VoiceHandler {
 
             // Extract caller information from SIP headers
             const fromHeader = sipHeaders.find(h => h.name === 'From');
-            const toHeader = sipHeaders.find(h => h.name === 'To');
             const callerNumber = fromHeader?.value || 'unknown';
 
-            console.log(`📞 Call from ${callerNumber} - Call ID: ${callId}`);
+            console.log(`📞 Incoming call ${callId} from ${callerNumber}`);
 
             // Store session info
             this.activeSessions.set(callId, {
@@ -97,10 +88,10 @@ class VoiceHandler {
 
             // Accept the call asynchronously (don't block webhook response)
             this.acceptCall(callId).catch(error => {
-                console.error(`❌ Failed to accept call ${callId} after webhook response:`, error.message);
+                console.error(`❌ Failed to accept call ${callId}:`, error.message);
             });
 
-            console.log(`✅ Webhook acknowledged - accepting call in background`);
+            console.log(`✅ Webhook acknowledged for ${callId}`);
 
         } catch (error) {
             console.error('❌ Error handling incoming call:', error);
@@ -116,21 +107,23 @@ class VoiceHandler {
 
         try {
             // Configure the Realtime session with full instructions and tools
+            const tools = this.realtimeFunctions.getFunctionDefinitions().map(func => ({
+                type: 'function',
+                name: func.name,
+                description: func.description,
+                parameters: func.parameters
+            }));
+
             const acceptPayload = {
                 type: 'realtime',
                 model: 'gpt-realtime',
                 voice: 'alloy',
                 modalities: ['audio', 'text'],
                 instructions: this.getSystemInstructions(),
-                tools: this.realtimeFunctions.getFunctionDefinitions().map(func => ({
-                    type: 'function',
-                    name: func.name,
-                    description: func.description,
-                    parameters: func.parameters
-                }))
+                tools: tools
             };
 
-            console.log('Accept payload:', JSON.stringify(acceptPayload, null, 2));
+            console.log(`📞 Accepting call ${callId} with ${tools.length} functions...`);
 
             const response = await axios.post(
                 `${this.openaiBaseUrl}/realtime/calls/${callId}/accept`,
@@ -144,7 +137,7 @@ class VoiceHandler {
                 }
             );
 
-            console.log(`✅ Call ${callId} accepted successfully`);
+            console.log(`✅ Call ${callId} accepted`);
 
             // Update session status
             const session = this.activeSessions.get(callId);
