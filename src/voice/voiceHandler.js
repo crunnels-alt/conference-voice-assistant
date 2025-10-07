@@ -119,18 +119,22 @@ class VoiceHandler {
             const response = await axios.post(
                 `${this.openaiBaseUrl}/realtime/calls/${callId}/accept`,
                 {
-                    type: 'realtime',
-                    model: 'gpt-realtime',
-                    voice: 'alloy', // Options: alloy, echo, fable, onyx, nova, shimmer
-                    instructions: this.getSystemInstructions(),
-                    tools: this.realtimeFunctions.getFunctionDefinitions().map(func => ({
-                        type: 'function',
-                        name: func.name,
-                        description: func.description,
-                        parameters: func.parameters
-                    })),
-                    tool_choice: 'auto',
-                    temperature: 0.8
+                    session: {
+                        type: 'realtime',
+                        model: 'gpt-realtime',
+                        audio: {
+                            output: {
+                                voice: 'alloy' // Options: alloy, echo, fable, onyx, nova, shimmer, marin, cedar
+                            }
+                        },
+                        instructions: this.getSystemInstructions(),
+                        tools: this.realtimeFunctions.getFunctionDefinitions().map(func => ({
+                            type: 'function',
+                            name: func.name,
+                            description: func.description,
+                            parameters: func.parameters
+                        }))
+                    }
                 },
                 {
                     headers: {
