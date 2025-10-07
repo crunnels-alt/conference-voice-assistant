@@ -115,6 +115,7 @@ class LeadDevScraper {
             const sessionType = this.extractSessionType($, $el);
             const time = this.extractTimeInfo($, $el);
             const suitability = this.extractSuitabilityInfo($, $el);
+            const sponsor = this.extractSponsorInfo($, $el);
 
             if (!title) return null;
 
@@ -125,6 +126,7 @@ class LeadDevScraper {
                 sessionType,
                 time,
                 suitability,
+                sponsor,
                 rawHtml: $el.html() // For debugging
             };
 
@@ -220,6 +222,33 @@ class LeadDevScraper {
         if (suitabilityText.includes('senior engineer')) levels.push('SENIOR ENGINEER');
 
         return levels;
+    }
+
+    extractSponsorInfo($, $el) {
+        // Look for sponsor information in LeadDev HTML
+        const sponsorSelectors = [
+            '.ld-card__sponsor-name',
+            '.ld-card__sponsorship',
+            '[class*="sponsor"]'
+        ];
+
+        for (const selector of sponsorSelectors) {
+            const sponsorElement = $el.find(selector).first();
+            if (sponsorElement.length) {
+                const sponsorText = sponsorElement.text().trim();
+                // Extract company name from "Sponsored by CompanyName" format
+                const match = sponsorText.match(/sponsored by\s+(.+)/i);
+                if (match) {
+                    return match[1].trim();
+                }
+                // Or just return the text if it looks like a company name
+                if (sponsorText && !sponsorText.toLowerCase().includes('sponsor')) {
+                    return sponsorText;
+                }
+            }
+        }
+
+        return null;
     }
 
     parseTime(timeString) {
@@ -413,14 +442,33 @@ class LeadDevScraper {
                     }
                 }
 
+                // Insert or get sponsor company
+                let sponsorCompanyId = null;
+                if (session.sponsor) {
+                    const existingCompany = await this.databaseManager.getQuery(
+                        'SELECT id FROM companies WHERE name = $1',
+                        [session.sponsor]
+                    );
+
+                    if (existingCompany) {
+                        sponsorCompanyId = existingCompany.id;
+                    } else {
+                        const companyResult = await this.databaseManager.runQuery(
+                            'INSERT INTO companies (name, is_sponsor) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING RETURNING id',
+                            [session.sponsor, true]
+                        );
+                        sponsorCompanyId = companyResult.id;
+                    }
+                }
+
                 // Insert session
                 const startTime = session.time ? session.time.start : new Date().toISOString();
                 const endTime = session.time ? session.time.end : new Date(Date.now() + 45 * 60 * 1000).toISOString();
 
                 const sessionResult = await this.databaseManager.runQuery(`
-                    INSERT INTO sessions (title, description, start_time, end_time, speaker_id, session_type_id, topic_id, venue_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-                    [session.title, session.description, startTime, endTime, speakerId, sessionTypeId, topicId, defaultVenueId]
+                    INSERT INTO sessions (title, description, start_time, end_time, speaker_id, session_type_id, topic_id, sponsor_company_id, is_sponsored, venue_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [session.title, session.description, startTime, endTime, speakerId, sessionTypeId, topicId, sponsorCompanyId, !!sponsorCompanyId, defaultVenueId]
                 );
 
                 console.log(`✅ Inserted session: ${session.title}`);
